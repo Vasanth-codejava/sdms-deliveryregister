@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delivery Register</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    body { font-family: 'Roboto', Arial, sans-serif; margin:0; padding:0; background: #fdfdfd; color: #1a1a1a; }
+    .logo-container { text-align:center; padding:20px 0; background:#fff; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+    .logo-container img { height:60px; }
+    h1 { margin:0 0 10px 0; color:#002147; text-align:center; }
+    h2 { color:#002147; margin-top:0; }
+    .container { width:95%; max-width:1200px; margin:auto; padding:20px; }
+    .card { background:white; padding:20px; border-radius:10px; box-shadow:0 5px 15px rgba(0,0,0,0.1); margin-bottom:20px; border-top:5px solid #ff6600; }
+    table { width:100%; border-collapse: collapse; margin-top:10px; }
+    table, th, td { border:1px solid #ccc; }
+    th { background:#002147; color:#fff; }
+    th, td { padding:10px; text-align:left; }
+    input[type="number"], input[type="date"] { padding:6px; width:80px; border-radius:4px; border:1px solid #ccc; }
+    button { padding:10px 15px; border:none; border-radius:6px; cursor:pointer; font-weight:500; margin-top:5px; }
+    button:hover { opacity:0.9; }
+    #saveBtn { background:#ff6600; color:white; }
+    .excel-btn { background:#28a745; color:white; margin-left:10px; }
+    .pdf-btn { background:#dc3545; color:white; margin-left:10px; }
+    .overall-btn { background:#002147; color:white; margin-top:10px; }
+    .readonly { background:#f0f0f0; display:inline-block; padding:5px; width:80px; border-radius:4px; }
+    input:focus { outline: 2px solid #ff6600; }
+    #recordTable tr:nth-child(even) td { background:#fff5e6; }
+    #recordTable tr:nth-child(odd) td { background:#ffffff; }
+  </style>
+</head>
+<body>
+
+<div class="logo-container">
+  <img src="https://access.ex.indianoil.in/ssologin/ico_new_logo-final.gif" alt="Logo">
+</div>
+
+<div class="container">
+  <h1>Delivery Register System</h1>
+
+  <div class="card">
+    <h2>Enter Today Delivery</h2>
+    <label>Select Date:</label>
+    <input type="date" id="entryDate" />
+    <table>
+      <tr>
+        <th>Delivery Man</th>
+        <th>14kg</th>
+      </tr>
+      <tbody id="inputRows"></tbody>
+    </table>
+
+    <br>
+    <label>Total 19kg: <input type="number" id="total14kg" min="0"></label>
+    <label>Present Delivery Men: <input type="number" id="presentMen" min="1" max="6"></label>
+    <div id="absentContainer" style="margin-top:10px;"></div>
+    <br>
+    <button id="saveBtn" onclick="saveRecord()">Save Today Record</button>
+    <button class="excel-btn" onclick="exportExcel()">Export Excel</button>
+    <button class="pdf-btn" onclick="exportPDF()">Export PDF</button>
+  </div>
+
+  <div class="card">
+    <h2>All Records</h2>
+    <table id="recordMainTable">
+      <tr>
+        <th>Date</th>
+        <th>Name</th>
+        <th>14kg</th>
+        <th>Total1</th>
+        <th>19kg Split</th>
+        <th>Total2</th>
+      </tr>
+      <tbody id="recordTable"></tbody>
+    </table>
+    <button class="overall-btn" onclick="calculateOverall()">Overall Total</button>
+    <div id="overallContainer" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<script>
+const deliveryMen = ["Amulraj", "Bala", "Ramesh", "Kannan k", "Nagaraj", "Palanisamy"];
+let totals = { "Amulraj":0, "Bala":0, "Ramesh":0, "Kannan k":0, "Nagaraj":0, "Palanisamy":0 };
+
+window.onload = () => {
+  setNextWorkingDate();
+  createInputRows();
+  setTimeout(enableEnterNavigation, 200);
+};
+
+function createInputRows() {
+  let html = "";
+  deliveryMen.forEach(name => {
+    html += `<tr>
+        <td><span class='readonly'>${name}</span></td>
+        <td><input type='number' id='val_${name}' min='0'></td>
+      </tr>`;
+  });
+  document.getElementById("inputRows").innerHTML = html;
+}
+
+function setNextWorkingDate() {
+  const d = new Date();
+  while (d.getDay() === 0) { d.setDate(d.getDate() + 1); }
+  document.getElementById("entryDate").value = d.toISOString().split("T")[0];
+}
+
+// Handle absent delivery men
+document.getElementById('presentMen').addEventListener('input', updateAbsentCheckboxes);
+
+function updateAbsentCheckboxes() {
+  const present = Number(document.getElementById('presentMen').value) || 6;
+  const totalMen = deliveryMen.length;
+  const absentCount = totalMen - present;
+  const container = document.getElementById('absentContainer');
+  container.innerHTML = '';
+  if (absentCount <= 0) return;
+
+  let html = `<label>Select absent delivery men (${absentCount}):</label><br>`;
+  deliveryMen.forEach(name => {
+    html += `<input type="checkbox" class="absentBox" value="${name}"> ${name} &nbsp;`;
+  });
+  container.innerHTML = html;
+
+  const checkboxes = container.querySelectorAll('.absentBox');
+  checkboxes.forEach(cb => {
+    cb.addEventListener('change', () => {
+      const selected = Array.from(checkboxes).filter(c => c.checked);
+      if (selected.length > absentCount) cb.checked = false;
+    });
+  });
+}
+
+function saveRecord() {
+  let date = document.getElementById("entryDate").value;
+  if (!date) return alert("Select date first");
+
+  let total14 = Number(document.getElementById('total14kg').value || 0);
+  let presentMen = Number(document.getElementById('presentMen').value || deliveryMen.length);
+
+  // get absent delivery men
+  const absent = Array.from(document.querySelectorAll('.absentBox:checked')).map(cb => cb.value);
+
+  // calculate 14kg split for present delivery men only
+  let presentNames = deliveryMen.filter(name => !absent.includes(name));
+  let splitArray = distributeKg(total14, presentNames.length);
+
+  deliveryMen.forEach((name) => {
+    let v = Number(document.getElementById(`val_${name}`).value || 0);
+    totals[name] += v; // cumulative total1
+    let kgSplit = absent.includes(name) ? 0 : splitArray.shift();
+    let total2 = v + kgSplit; // today's 14kg + split
+    addRow(date, name, v, totals[name], kgSplit, total2);
+  });
+
+  let sep = `<tr><td colspan='6' style='background:#fff;height:15px;border:none;'></td></tr>`;
+  document.getElementById("recordTable").innerHTML += sep;
+
+  moveToNextDate();
+  clearInputs();
+  document.getElementById('total14kg').focus();
+}
+
+function distributeKg(total, count) {
+  let arr = [];
+  if(count===0) return arr;
+  let base = Math.floor(total / count);
+  let remainder = total % count;
+  for(let i=0;i<count;i++) arr.push(base);
+  for(let i=0;i<remainder;i++) arr[i] += 1;
+  return arr;
+}
+
+function addRow(date, name, value, total1, kg14, total2) {
+  let row = `<tr>
+      <td>${date}</td>
+      <td>${name}</td>
+      <td>${value}</td>
+      <td>${total1}</td>
+      <td>${kg14}</td>
+      <td>${total2}</td>
+    </tr>`;
+  document.getElementById("recordTable").innerHTML += row;
+}
+
+function moveToNextDate() {
+  let d = new Date(document.getElementById("entryDate").value);
+  d.setDate(d.getDate() + 1);
+  while (d.getDay() === 0) { d.setDate(d.getDate() + 1); }
+  document.getElementById("entryDate").value = d.toISOString().split("T")[0];
+}
+
+function enableEnterNavigation() {
+  const inputs = Array.from(document.querySelectorAll('#inputRows input[type="number"]'));
+  inputs.forEach((inp, i) => {
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const next = inputs[i + 1] || document.getElementById('total14kg');
+        if (next) next.focus();
+      }
+    });
+  });
+  document.getElementById('total14kg').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter') { e.preventDefault(); document.getElementById('presentMen').focus(); }
+  });
+  document.getElementById('presentMen').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter') { e.preventDefault(); document.getElementById('saveBtn').focus(); }
+  });
+}
+
+function clearInputs() {
+  deliveryMen.forEach(name => { document.getElementById(`val_${name}`).value = ''; });
+  document.getElementById('total14kg').value = '';
+  document.getElementById('presentMen').value = '';
+  document.getElementById('absentContainer').innerHTML = '';
+}
+
+// Excel Export
+function exportExcel() {
+  let wb = XLSX.utils.book_new();
+  let ws = XLSX.utils.table_to_sheet(document.getElementById("recordMainTable"));
+  XLSX.utils.book_append_sheet(wb, ws, "Delivery Records");
+  XLSX.writeFile(wb, "DeliveryRegister.xlsx");
+}
+
+// PDF Export
+function exportPDF() {
+  const { jsPDF } = window.jspdf;
+  let doc = new jsPDF();
+  doc.setFontSize(10);
+  doc.text("Delivery Register", 10, 10);
+  doc.autoTable({ html: '#recordMainTable', startY: 15, theme: 'grid' });
+  doc.save("DeliveryRegister.pdf");
+}
+
+// Overall Total with sum row
+function calculateOverall() {
+  const container = document.getElementById('overallContainer');
+  let totalSum = 0;
+  let html = `<table style="width:50%; border-collapse:collapse; text-align:left;">
+      <tr style="background:#ff6600; color:white;"><th>Delivery Man</th><th>Total1</th></tr>`;
+
+  deliveryMen.forEach(name => {
+    html += `<tr><td>${name}</td><td>${totals[name]}</td></tr>`;
+    totalSum += totals[name];
+  });
+
+  html += `<tr style="font-weight:bold; background:#002147; color:white;"><td>SUM</td><td>${totalSum}</td></tr>`;
+  html += `</table>`;
+  container.innerHTML = html;
+}
+</script>
+
+</body>
+</html>
